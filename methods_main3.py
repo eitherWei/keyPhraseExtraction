@@ -1,11 +1,22 @@
-
 import codecs
 import re
 import networkx as nx
 from nltk.corpus import stopwords
 stop = set(stopwords.words('english'))
 from nltk.stem import WordNetLemmatizer
+import pandas as pd
+
 import time
+
+from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.cluster import KMeans
+from sklearn.externals import joblib
+from sklearn.manifold import MDS
+import matplotlib.pyplot as plt
+from sklearn.metrics import silhouette_score
+
+from gensim import corpora, models , similarities
+import gensim
 
 class processMethods:
 
@@ -26,6 +37,8 @@ class processMethods:
             termArray.append(word)
         return " ".join(termArray)
 
+
+
     def cleanData(self, line):
         # remove urls
         pattern = 'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\(\), ]|(?:%[0-9a-fA-F][0-9a-fA-F]))+'
@@ -33,10 +46,10 @@ class processMethods:
         # remove punctuation
         line = re.sub('[^a-zA-Z0-9]', ' ' , line)
         # break strings into an array
-        #line = line.split()
+        # line = line.split()
         # lemmatise data
-        #print("lemmatising text .... ")
-        #line = self.lemmatise_corpus(line)
+        # print("lemmatising text .... ")
+        line = self.lemmatise_corpus(line)
         # remove stopwords
         #print(line)
 
@@ -62,7 +75,7 @@ class processMethods:
 
 
 
-    def plotCorpusToDiGraph(self, corpus, title , graph = nx.DiGraph(), failSafe = False, level = 2):
+    def plotCorpusToDiGraph(self, corpus, title = "stored_graph.pkl", graph = nx.DiGraph(), failSafe = True, level = 2):
             try:
                 if (failSafe):
                     # purposely crash try/except to force graph rebuild
@@ -137,3 +150,116 @@ class processMethods:
     def calculate_prob_a_given_b(self, A, B, AB):
         likelihood = AB*A/float(B)
         return likelihood
+
+    def clusteringMethods(self, methods, loadDump = False, title = "d_clusters.pkl", num_clusters = 10):
+
+        # the distance between all of the docs
+        dist = 1 - cosine_similarity(methods.tfidf_matrix)
+
+        if(loadDump):
+            print("loading stored results")
+            km = joblib.load(title)
+        else:
+            #num_clusters = 10
+            km = KMeans(n_clusters = num_clusters)
+            clusters = km.fit(methods.tfidf_matrix)
+            clusters = km.labels_.tolist()
+            joblib.dump(km,  title)
+
+        # load into a dataFrame
+        df = pd.DataFrame({"cluster" : clusters})
+        print(df.cluster.value_counts())
+
+
+
+        methods.df['clusterAssignment'] = km.labels_.tolist()
+
+        print(methods.df.head())
+
+        #print(km.labels_.tolist()[0])
+
+
+
+        ########################################################################
+        # sorting clusters by ngrams
+        print("Top terms per cluster")
+        clusterTermDict = {}
+        order_centroids = km.cluster_centers_.argsort()[:, ::-1]
+
+        for i in range(num_clusters):
+            print("Cluster %d words:" % i , end=',')
+
+            for ind in order_centroids[i, :6]:
+                print(methods.wordStore[ind])
+                clusterTermDict[i] = methods.wordStore[ind]
+
+
+        ########################################################################
+
+        ########################################################################
+        '''
+        # multidimensional scaling
+        MDS()
+
+        mds = MDS(n_components = 2, dissimilarity = "precomputed", random_state =1)
+
+        pos = mds.fit_transform(dist)
+
+        xs, ys = pos[:, 0], pos[:, 1]
+
+        cluster_colors = {0: '#1b9e77', 1: '#d95f02', 2: '#7570b3', 3: '#e7298a', 4: '#66a61e'}
+
+        mds_df = pd.DataFrame(dict(x = xs, y = ys, label = km.labels_.tolist()))
+
+        groups = mds_df.groupby('label')
+
+        fig, ax = plt.subplots(figsize=(17,9))
+        ax.margins(0.05)
+
+        for name, group in groups:
+            ax.plot(group.x, group.y, marker='o', linestyle='', ms=12,
+                label=clusterTermDict[name], color=cluster_colors[name],
+                mec='none')
+            ax.set_aspect('auto')
+            ax.tick_params(\
+                axis= 'x',          # changes apply to the x-axis
+                which='both',      # both major and minor ticks are affected
+                bottom='off',      # ticks along the bottom edge are off
+                top='off',         # ticks along the top edge are off
+                labelbottom='off')
+            ax.tick_params(\
+                axis= 'y',         # changes apply to the y-axis
+                which='both',      # both major and minor ticks are affected
+                left='off',      # ticks along the bottom edge are off
+                top='off',         # ticks along the top edge are off
+                labelleft='off')
+
+        ax.legend(numpoints=1)  #show legend with only 1 point
+
+        #plt.show() #show the plot
+
+        from gensim.test.utils import common_texts
+        from gensim.corpora.dictionary import Dictionary
+        from gensim import corpora, models, similarities
+
+        print(methods.df.sanitiseData[0])
+        text = methods.df.sanitiseData[0].split()
+        text2 = methods.df.sanitiseData[1].split()
+        textArray = []
+        textArray.append(text)
+        textArray.append(text2)
+
+        dictionary = Dictionary(textArray)
+        corpus = [dictionary.doc2bow(text) for text in textArray]
+
+        #lda = gensim.models.ldamodel.LdaModel(corpus, num_topics=2, id2word = dictionary, passes=20)
+
+        lda = gensim.models.ldamodel.LdaModel(corpus, num_topics = 10, id2word = dictionary, passes=100)
+
+        print(lda.show_topics())
+
+        '''
+
+        return silhouette_score(methods.tfidf_matrix, km.labels_)
+
+        ########################################################################

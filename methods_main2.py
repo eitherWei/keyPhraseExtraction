@@ -29,10 +29,79 @@ class mainMethods:
         self.phraseDict = {}
         # keep a record of the frequency of occurence of terms
         self.termsDict = {}
+        # keep a records of the tfidf vectorizer
+        self.tfidf_vectoriser = TfidfVectorizer()
+        # # keep a records of the tfidf_matrix
+        self.tfidf_matrix = pd.DataFrame()
+        # store a count of all terms in the corpus
+        self.termCorpusCount = {}
+        # a list of all of the recorded dfs
+        self.allTermIDFList = pd.DataFrame()
+        # store a reference to words and dict locations
+        self.wordStore = {}
+
+    def lemmatiseCompTerms(self, text):
+        sentArray = []
+        # make sure that terms are present
+        try:
+            # split input text into array
+            terms = text.split("\n")
+            # loop over terms
+            for term in terms:
+                # phrases to be reduced to terms for lemmatising
+                term = term.split()
+                # ensure no blank strings
+                if len(term) > 0:
+                    # singletons
+                    if len(term) == 1:
+                        term = nlpMethods.lemmatise_corpus(self, term[0].lower())
+                        sentArray.append(term)
+                    # phrases
+                    else:
+                        termArray = []
+                        # lemmatise each word in phrase
+                        for t in term:
+                            termArray.append(nlpMethods.lemmatise_corpus(self, t.lower()))
+                        #remake phrase
+                        term = " ".join(termArray)
+                        sentArray.append(term)
+        except:
+            print("detected problem with below")
+            print(text)
+        return sentArray
+
+    def extractIdfTermsDoc(self, text):
+        #print(self.df.handle.index.values[text - 1])
+        df1 = self.allTermIDFList[self.allTermIDFList.doc_id_list == (text- 1)]
+        df1.sort_values(by=['term_idf_list'], inplace=True, ascending=False)
+        tempDict = dict(zip(df1.term_list, df1.term_idf_list))
+
+        return tempDict
+
+    def amalgamateAllDocTermDictionaries(self, dict):
+        self.termCorpusCount.update(dict)
 
 
+    def extractAlternativeCorpus(self, path):
+        #path = "Krapivin2009/all_docs_abstacts_refined/"
+        _ , docs = self.extractFileNames(path)
+        #print(docs)
+        docLocations = []
+        for item in docs:
+            if ".txt" in item:
+                path1 = path + item
+                docLocations.append(path1)
 
+        return docLocations
 
+    def termCountDictionaryMethod(self, text):
+        text = dict(Counter(text.split()))
+        return text
+
+    def countTotalTerms(self, text):
+        # split the terms into dictionary counts
+        text = text.split()
+        return text
 
     def extractAccronymns(self):
         accroDict = {}
@@ -56,7 +125,7 @@ class mainMethods:
             if(os.path.isdir(path1)):
                 listee.append(int(d))
         listee.sort()
-
+        # assigns the value to the class def
         self.df = pd.DataFrame({"handle" : listee})
         return listee , dirs
 
@@ -148,15 +217,16 @@ class mainMethods:
         return("", "")
 
     def extractFiles(self, text):
-        path = "/Users/stephenbradshaw/Documents/codingTest/AutomaticKeyphraseExtraction-master/data/"
-        return path + str(text) + "/" + str(text) + ".txt"
+        #path = "/Users/stephenbradshaw/Documents/codingTest/AutomaticKeyphraseExtraction-master/data/"
+        return self.path + str(text) + "/" + str(text) + ".txt"
 
     def extractKeyWordFiles(self, text):
 
-        path = "/Users/stephenbradshaw/Documents/codingTest/AutomaticKeyphraseExtraction-master/data/"
-        path = path + str(text) + "/" + str(text) + ".kwd"
+        #path = "/Users/stephenbradshaw/Documents/codingTest/AutomaticKeyphraseExtraction-master/data/"
+        path = self.path + str(text) + "/" + str(text) + ".kwd"
         try:
             text = self.extractContent(path)
+            #print(text)
         except:
             #print("keyword absent: " + str(text))
             x = 1
@@ -164,13 +234,13 @@ class mainMethods:
 
     def extractKeyWordFilesTerms(self, text):
 
-        path = "/Users/stephenbradshaw/Documents/codingTest/AutomaticKeyphraseExtraction-master/data/"
-        path = path + str(text) + "/" + str(text) + ".term"
+        #path = "/Users/stephenbradshaw/Documents/codingTest/AutomaticKeyphraseExtraction-master/data/"
+        path = self.path + str(text) + "/" + str(text) + ".term"
         try:
-            text = self.extractContent( path)
+            text = self.extractContent(path)
             text = self.cleanTermsArray(text)
-            #text = nlpMethods.lemmatise_corpus(self, " ".join(text))
-            #text = text.split()
+            text = nlpMethods.lemmatise_corpus(self, " ".join(text))
+            text = text.split()
         except:
             #print("keyword absent: " + str(text))
             x = 1
@@ -185,7 +255,7 @@ class mainMethods:
 
     def applyTFidfToCorpus(self, dfList, title = "tfidf_store.pkl", failSafe = False):
         # create tf-idf matrix for the corpus
-        tfidf_matrix = None
+        #tfidf_matrix = None
         try:
             if (failSafe):
                 ''' purposely crash try/except to force vectoriser rebuild '''
@@ -193,15 +263,15 @@ class mainMethods:
 
             print("-- Retrieving stored tfidf_matrix --")
 
-            tfidf_matrix = pickle.load(open("tfidf_matrix.pkl", "rb" ) )
-            tfidf_vectoriser = pickle.load(open("tfidf_vectoriser.pkl", "rb" ) )
+            tfidf_matrix = pickle.load(open("matrix_" + title, "rb" ) )
+            tfidf_vectoriser = pickle.load(open("vectorisor_" + title, "rb" ) )
 
 
         except:
 
             print("failed to load -- building tokeniser --")
             # initialise vectoriser and pass cleaned data
-            tfidf_vectoriser = TfidfVectorizer(max_df = 0.9, min_df = 0.1, stop_words ='english', tokenizer = self.tokenize_only)
+            tfidf_vectoriser = TfidfVectorizer(max_df = 0.9, min_df = 0.1, ngram_range = (1,3), stop_words ='english', tokenizer = self.tokenize_only)
             tfidf_matrix = tfidf_vectoriser.fit_transform(list(dfList))
 
             #df= pd.DataFrame({"tfidf_matrix" : tfidf_matrix}, index=[0])
@@ -209,16 +279,18 @@ class mainMethods:
             #df.to_pickle("tfidf_matrix.pkl")
 
             # pickle tfidf matrix for faster future load
-            with open(title, 'wb') as handle:
+            with open("matrix_" + title, 'wb') as handle:
                         pickle.dump(tfidf_matrix, handle)
 
             # pickle tfidf vectoriser for faster future load
-            with open(title, 'wb') as handle:
+            with open("vectorisor_" + title, 'wb') as handle:
                         pickle.dump(tfidf_vectoriser, handle)
 
         return tfidf_matrix , tfidf_vectoriser
 
-    def ExtractSalientTerms(self, tfidf_vectoriser, tfidf_matrix, title = "tfidf_.pkl",  failSafe = False):
+
+    def ExtractSalientTerms(self, tfidf_vectoriser, tfidf_matrix, title = "tfidf_.pkl",  failSafe = True):
+        print('salient terms')
         df = pd.DataFrame()
         try:
             if (failSafe):
@@ -245,6 +317,14 @@ class mainMethods:
             # invert the dict so the keys are the values and values the keys
             dict1 = dict(zip(values, keys))
 
+            # shortcut for saving and loading dictionary
+            self.wordStore = dict1
+            with open('dict' + title + '.pkl', 'wb') as f:
+                pickle.dump(dict1, f, pickle.HIGHEST_PROTOCOL)
+
+
+
+
             # iterate through matrix
             for i in range(0, (tfidf_matrix.shape[0])):
                 for j in range(0, len(tfidf_matrix[i].indices)):
@@ -258,6 +338,11 @@ class mainMethods:
             # pickle process for future fast retrieval
             df.to_pickle(title)
 
+        print('loading dictionary')
+        with open('dict' + title + '.pkl', 'rb') as f:
+            self.wordStore =  pickle.load(f)
+
+        print(list(self.wordStore.items())[:5])
         return df
 
     def extractTopNTerms(self, df ,  N = 10, title = "alt_termsList.pkl" , failSafe = False):
@@ -403,8 +488,6 @@ class mainMethods:
                 index = index + 1
 
         return doc_dict
-
-
 
     def createTextVectors(self, text):
         text_array = []

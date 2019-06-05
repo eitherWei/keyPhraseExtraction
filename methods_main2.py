@@ -5,16 +5,20 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 import pickle
 import codecs
 from nltk.corpus import stopwords
+stop = set(stopwords.words('english'))
 import warnings
 from nlp_methods import nlpMethods
 from  collections import Counter
-
+import string
+import matplotlib.pyplot as plt
+import numpy as np
+import networkx as nx
+import nltk
 warnings.filterwarnings('ignore')
 stop = set(stopwords.words('english'))
 stop.add("gt")
 stop.add("et")
 stop.add("al")
-
 
 class mainMethods:
 
@@ -39,6 +43,810 @@ class mainMethods:
         self.allTermIDFList = pd.DataFrame()
         # store a reference to words and dict locations
         self.wordStore = {}
+        # pattern to change text area targeted
+        self.pattern = "REFERENCES"
+#####################################################################
+# patternMiner
+    def removePunctuation(self, text):
+        # takes as input and array of arrays each containing string sentences
+        # returns an array containing tokenised clean sentArrays
+        sectionArray = []
+        for array in text:
+            sentArray = []
+            for sent in array:
+                sent = self.cleanSent( sent)
+                sent = sent.split()
+                # secondary array to contain all terms > 1
+                sentA = []
+                for str in sent:
+                    if str not in stop:
+                        if len(str) > 1:
+                            sentA.append(str)
+                # dont include any blank arrays
+                if len(sentA) > 0:
+                    sentArray.append(sentA)
+            sectionArray.extend(sentArray)
+
+        return sectionArray
+
+#####################################################################
+# keyPhraseExtraction
+
+    # extract viable terms
+    def extractPosTags(self, text):
+        desired_tags = ["JJ", "NNS", "NN", "JJS"]
+        sentArray = []
+        for t in text:
+            #t = " ".join(t)
+            sent = []
+            pos_tag = nltk.pos_tag(t)
+            for tag in pos_tag:
+                if tag[1] in desired_tags:
+                    sent.append(tag[0])
+                else:
+                    sent.append("_")
+            sentArray.append(sent)
+
+        return sentArray
+
+
+
+    def computePageRank2(self, graph):
+        # loop over the values and create the k value for the nodes
+        inoutDict = {}
+        for a in graph.keys():
+            #print(a)
+            #print(graph[a])
+            for k , v in graph[a].items():
+                if k in inoutDict:
+                    inoutDict[k] += v['cousin']
+                else:
+                    inoutDict[k] = v['cousin']
+        # create a matrix of output
+
+        # inialise score to 1
+        #score = np.array([1] * len(inoutDict))
+
+        vocab = graph.nodes()
+        score = np.ones(len(vocab), dtype = np.float32)
+
+        MAX_ITERATIONS = 50
+        d = 0.85
+        threshold = 0.0001 # convergence threshold
+        count = 0
+        print("the graph has {}".format(len(graph.nodes())))
+        for iter in range(MAX_ITERATIONS):
+            prev_score = np.copy(score)
+
+            for i in range(len(vocab)):
+                summation = 0
+                for j in range(len(vocab)):
+                    if i != j:
+                        if graph.has_edge(vocab[i], vocab[j]):
+                            #print(graph[vocab[i]][vocab[j]]['cousin'])
+                            #print(vocab[i], vocab[j])
+                            summation += (graph[vocab[i]][vocab[j]]['cousin']/inoutDict[vocab[j]])*score[j]
+                #print(" {} : {} ".format(str(vocab[i]), summation))
+                score[i] = (1 - d)+ d*(summation)
+
+            if np.sum(np.fabs(prev_score - score)) <= threshold:
+                # convergence baby
+                print("convergence at {}".format(iter))
+                break
+
+
+        #print(score)
+
+        textRankDict = dict(zip(vocab, score))
+
+        d = dict(sorted(textRankDict.items(), key=lambda x: x[1], reverse = True))
+
+        return d
+
+    def computePageRank(self, graph):
+        # loop over the values and create the k value for the nodes
+        inoutDict = {}
+        for a in graph.nodes():
+            #print(a)
+            #print(graph[a])
+            for k , v in graph[a].items():
+                if k in inoutDict:
+                    inoutDict[k] += v['cousin']
+                else:
+                    inoutDict[k] = v['cousin']
+        # create a matrix of output
+
+        # inialise score to 1
+        #score = np.array([1] * len(inoutDict))
+
+        vocab = graph.nodes()
+        score = np.ones(len(vocab), dtype = np.float32)
+
+        MAX_ITERATIONS = 50
+        d = 0.85
+        threshold = 0.0001 # convergence threshold
+        count = 0
+        print("the graph has {}".format(len(graph.nodes())))
+        for iter in range(MAX_ITERATIONS):
+            prev_score = np.copy(score)
+
+            for i in range(len(vocab)):
+                summation = 0
+                for j in range(len(vocab)):
+                    if i != j:
+                        if graph.has_edge(vocab[i], vocab[j]):
+                            #print(graph[vocab[i]][vocab[j]]['cousin'])
+                            #print(vocab[i], vocab[j])
+                            summation += (graph[vocab[i]][vocab[j]]['cousin']/inoutDict[vocab[j]])*score[j]
+                #print(" {} : {} ".format(str(vocab[i]), summation))
+                score[i] = (1 - d)/len(graph.nodes()) + d*(summation)
+
+            if np.sum(np.fabs(prev_score - score)) <= threshold:
+                # convergence baby
+                print("convergence at {}".format(iter))
+                break
+
+
+        #print(score)
+
+        textRankDict = dict(zip(vocab, score))
+
+        d = dict(sorted(textRankDict.items(), key=lambda x: x[1], reverse = True))
+
+        return d
+
+
+    def extractFles(self):
+
+        dataset = pd.DataFrame()
+        # initialise methods class
+        path = "/Users/stephenbradshaw/Documents/codingTest/AutomaticKeyphraseExtraction-master/data/"
+        methods = mainMethods(path)
+        # extracts the files handles
+        methods.extractFileNames(path)
+        # load up full filepath (xml)
+        methods.df['fileNames'] = methods.df.handle.apply(methods.extractXMLFiles)
+        # extract text content
+        methods.df['files'] = methods.df.fileNames.apply(methods.extractContent)
+        ### assigning sectionDictionary to dataset
+        ### breaks the xml into sections allowing us to compartmentalise analysis
+        dataset['sectionsDict'] = methods.df.files.apply(methods.extractSections)
+        # remove the punctuation
+        dataset['punctuationClean'] = methods.punctuationClean(dataset)
+        # iterate over sections and create one doc
+        # alternative was to parse the xml and remove the sections header ....
+        dataset['wholeSections'] = dataset.punctuationClean.apply(methods.concatDocSections)
+        return dataset
+#####################################################################
+
+# main 9
+
+        # plotting vectors to the array
+    def plotArray(self, array, depth, g):
+        #print(array)
+        #print(len(array))
+        if len(array) < depth + 1:
+            depth = len(array)
+        targetTerm = array[0]
+        #print(targetTerm)
+        for i in range(1, depth):
+            #if i == 1:
+            g = self.AddGraphConnectionCousin( g, targetTerm, array[i], i)
+            #g = self.AddGraphConnectionDistantCousin(g, targetTerm, array[i])
+        return g , array[1:]
+
+    def plotArrayToDict(self, array, depth, dict):
+            #print(array)
+            #print(len(array))
+        if len(array) < depth + 1:
+            depth = len(array)
+        targetTerm = array[0]
+        #print(targetTerm)
+        for i in range(1, depth):
+            #if i == 1:
+            g = self.AddDictConnectionCousin( dict, targetTerm, array[i], i)
+            #g = self.AddGraphConnectionDistantCousin(g, targetTerm, array[i])
+        return g , array[1:]
+
+    def AddGraphConnectionCousin(self, g, a, b, i):
+        g.add_edge(a, b)
+        try:
+            g[a][b]['cousin'] += 1/i
+        except:
+            g.add_edge(a, b, cousin = 1)
+        return g
+
+    def AddDictConnectionCousin(self, dict, a, b, i):
+        key = a + b
+        if key in dict:
+            dict[key] += 1/float(i)
+        else:
+            dict[key] = 1
+        return dict
+
+    def AddGraphConnectionDistantCousin(self, g, a, b):
+        try:
+            g[a][b]['distantCousin'] +=1
+        except:
+            g.add_edge(a, b, distantCousin= 1)
+        return g
+
+    def plotDiGraph(self, corpus):
+        g = nx.Graph()
+        # methods takes in an array (corpus) of arrays (docs) each containg tokenised sentences (section)
+        for doc in corpus:
+            for section in doc:
+                #print(section)
+                #print(10*"-")
+                depth = 4
+                while(len(section) > 1):
+                    g, section = self.plotArray( section, depth, g)
+                    #print(10*"....")
+        #print(g.nodes(data = True))
+        #print(g.edges(data = True))
+        return g
+
+    def plotDicTGraph(self, corpus):
+        dict = {}
+        # methods takes in an array (corpus) of arrays (docs) each containg tokenised sentences (section)
+        for doc in corpus:
+            for section in doc:
+                #print(section)
+                #print(10*"-")
+                depth = 4
+                while(len(section) > 1):
+                    dict, section = self.plotArrayToDict( section, depth, dict)
+                        #print(10*"....")
+            #print(g.nodes(data = True))
+            #print(g.edges(data = True))
+            return dict
+
+    def expandNGram(self, brokenCorpus):
+        all_corpus_rejoined = []
+        for doc in brokenCorpus:
+            docArray = []
+            #print(doc)
+            for line in doc:
+                lineArray = []
+                while len(line) > 0:
+                    line, stringReturn = self.returnNGramConstruct(line)
+                    #print(tester)
+                    lineArray.extend(stringReturn)
+                docArray.append(lineArray)
+            all_corpus_rejoined.append(docArray)
+        return all_corpus_rejoined
+
+    def stemTheCorpus(self, corpus):
+        corpusArray = []
+        for doc in corpus:
+            docArray = []
+            for sect in doc:
+                sectArray = []
+                for line in sect:
+                    stemLine = nlpMethods.stem_corpus(self, line)
+                    sectArray.append(stemLine)
+                docArray.append(sectArray)
+            corpusArray.append(docArray)
+
+        return corpusArray
+
+    def stemTargetTerms(self, allTerms):
+        allStemTerms = []
+        for terms in allTerms:
+            stemTerms = []
+            for term in terms:
+                stemTerm = nlpMethods.stem_corpus(self, term)
+                stemTerms.append(stemTerm)
+            allStemTerms.append(stemTerms)
+        return allStemTerms
+
+    def lemmatiseTargetTerms(self, allTerms):
+        allLemmaTerms = []
+        for terms in allTerms:
+            lemmaTerms = []
+            for term in terms:
+                lemmaTerm = nlpMethods.lemmatise_corpus(self, term)
+                lemmaTerms.append(lemmaTerm)
+            allLemmaTerms.append(lemmaTerms)
+        return allLemmaTerms
+
+    def lemmatiseTheCorpus(self, corpus):
+        corpusArray = []
+        # first array holding the arrays of documents
+        for doc in corpus:
+            docArray = []
+            for sect in doc:
+                sectArray = []
+                for line in sect:
+                    #print(line)
+                    #print(10*"-")
+                    lemmaLine = nlpMethods.lemmatise_corpus(self, line)
+                    sectArray.append(lemmaLine)
+                docArray.append(sectArray)
+            corpusArray.append(docArray)
+
+        return corpusArray
+
+
+    def expandAcronymsInText(self, dataset, accronymDict):
+    # switching dataset.stopWordRemoved for brokenCorpus
+        brokenCorpus_augment_anagram = []
+        #for text in brokenCorpus:
+        for text in list(dataset['stopWordRemoved']):
+            # outer array
+            aug_doc_array = []
+            for t in text:
+                # inner array
+                #sectionDict = []
+                sectionDoc = []
+                for line in t:
+                    sectionDoc.append(line)
+                    for term in line.split():
+                        if term.isupper():
+                            if len(term) > 1:
+                                if term in accronymDict:
+                                    #print(term , accronymDict[term])
+                                    acc = " ".join(accronymDict[term])
+                                    sectionDoc.append(acc)
+                aug_doc_array.append(sectionDoc)
+            brokenCorpus_augment_anagram.append(aug_doc_array)
+        return brokenCorpus_augment_anagram
+
+    def extractAccronymnsCorpus(self, brokenCorpus):
+        liste = []
+        accronymDict = {}
+        for text in brokenCorpus:
+            # outer array - list[sections]
+            for t in text:
+                # inner array - sections[lines]
+                for line in t:
+                    # indicated potential accroynm definition
+                    if "(" in line:
+                        # pass to method that checks previous words to see if accroynm
+                        tester = self.extractCandidateSubstring(line)
+                        # if not blank add to dict
+                        if tester[0] != '':
+                            accronymDict[tester[0]] = tester[1]
+                            liste.append(tester)
+        return accronymDict
+
+
+    def stopwordRemoval(self, text):
+        # method for iterating over items in the dataframe
+        # each item is a list of list of strings  (corpus/section/lines)
+        # stopwords are removed and the the stringArrays are rejoined and returned for tokenizer down the lines
+        # array to hold the doc
+        docArray = []
+        for sect in text:
+            # array to hold each section
+            sectArray = []
+            # break each string in the list and rremove stopwords
+            for line in sect:
+                line = line.split()
+                lineArray = [x for x in line if x not in stop]
+                # rejoin the stingArrays
+                sectArray.append(" ".join(lineArray))
+            # append the sections to the docArray
+            docArray.append(sectArray)
+        # return the entire document as list of list of strings
+        return docArray
+
+
+    def extractTargetTerms(self, dataset):
+        self.df['keywords'] = self.df.handle.apply(self.extractKeyWordFiles)
+        self.df['competition_terms'] = self.df.handle.apply(self.extractKeyWordFilesTerms)
+        return  self.extractKeyPhrases()
+
+
+    def divideByIndicator(self, array, indicator):
+        chunkArray = []
+
+        for sent in array:
+            sent = sent.lower()
+            sent1 = sent.split(indicator)
+            chunkArray.extend(sent1)
+        #print('\n')
+        #print(chunkArray)
+        #print(10*"==")
+
+        #    for chunk in value.split(indicator):
+        #        chunkArray.extend(chunk)
+
+        return chunkArray
+
+
+    def tokeniseCorpus(self, dataset):
+        corpusArray = []
+        # loop over corpus ( list of dictionaries)
+        for i in range(len(dataset.sectionsDict)):
+            # store each line in one document array
+            sectArray = []
+            # loop through each value in the dictionaries set
+            for value in list(dataset.sectionsDict[i].values()):
+                # remove "\n" as they can interfer with results
+                value = " ".join(value.split("\n"))
+                # split into sentences
+                value  = value.split(". ")
+                #print(value)
+                # further split into commas
+                commaArray = self.divideByIndicator(value, ",")
+                collonArray = self.divideByIndicator(commaArray, ":")
+                semiCollonArray = self.divideByIndicator(collonArray, ";")
+                #    commaArray = self.divideByIndicator(sent, ",")
+                #    commaArray.extend(v)
+                #    print(v)
+                    #print("----->>>----")
+                #print(2*"\n")
+                sectArray.append(semiCollonArray)
+            corpusArray.append(sectArray)
+
+        return corpusArray
+
+    def cleanString(self, corpusArray):
+        allDocs = []
+        for i in range(len(corpusArray)):
+            sectArray = corpusArray[i]
+            # each section is addressed on a sentence level
+            sentArray = []
+            for sect in sectArray:
+                for sent in sect:
+                    sent = self.cleanSent(sent)
+                    sentArray.append(sent)
+
+            # cleaning by sentence
+            cleanerSent = []
+            for sent in sentArray:
+                sent = self.cleaningStep(sent)
+                cleanerSent.append(sent)
+
+            docArray = []
+            for i in range(len(cleanerSent)):
+                cleanerCleanerSent = []
+                for word in cleanerSent[i].split():
+                    word = word.strip().lower()
+                    if len(word) > 1:
+                        cleanerCleanerSent.append(word)
+                if len(cleanerCleanerSent) > 0:
+                    docArray.append(cleanerCleanerSent)
+            allDocs.append(docArray)
+
+        #print(len(corpusArray))
+        return allDocs
+
+    def extractIndexLocationForAllTargetTerms(self, df, dataset, targetAmount, title = "indexListDf.pkl", failSafe = False):
+        ## method loops over the dataset of terms and ranks them according to tfidf
+        ## method extracts the location for each target term and returns term, index location
+        indexList = []
+        exceptionCount = 0
+        if (failSafe):
+            print('# extract the doc target terms ')
+
+            # list to store dictionary result of term positions
+            indexList = []
+            # loop over all documents
+            #for i in range(dataset.shape[0]):
+            for i in range(targetAmount):
+                # dictinoary to store index result location per document
+                indexLocation = {}
+                # extract doc target terms
+                doc_target_terms = dataset.targetTerms[i]
+                # extract the doc terms
+                doc_corpusTerms = df[df.doc_id_list  == i]
+                # order your terms
+                doc_corpusTerms.sort_values(by=['term_idf_list'], inplace=True, ascending=False)
+                # reset the index so as to know where your terms fall on the scale of things
+                doc_corpusTerms.reset_index(inplace = True, drop=True)
+                # loop over terms list and extract index location
+                print(doc_corpusTerms.head(20))
+                for term in doc_target_terms:
+                    try:
+                        print(term)
+                        indexLocation[term] = doc_corpusTerms[doc_corpusTerms['term_list']==term].index.item()
+                    except:
+                        #print(i)
+                        #print(term)
+                        indexLocation[term] = -1
+                        exceptionCount = exceptionCount + 1
+                # add dict to list
+                indexList.append(indexLocation)
+                # rinse and repeat
+
+                with open(title, 'wb') as f:
+                    pickle.dump(indexList, f, pickle.HIGHEST_PROTOCOL)
+
+        else:
+            with open(title, 'rb') as f:
+                indexList =  pickle.load(f)
+
+        print(len(indexList))
+        print("the exception count for this run is {}".format(exceptionCount))
+        return indexList
+
+    def extractNgramsFromSentArrays(self, datasetSection):
+        #print(len(datasetSection))
+        docArray = []
+        for doc in datasetSection:
+            sentArray = []
+            for word in doc:
+                #word = 'a b c d e f g'
+                wordArray = word.split()
+                #print(10*"=+=")
+                stringArray = []
+                while len(wordArray) > 1:
+                    wordArray, stringReturn = self.returnNGramConstruct(wordArray)
+                    stringArray.extend(stringReturn)
+                #print(len(stringArray))
+                #print(stringArray)
+                sentArray.extend(stringArray)
+            docArray.append(sentArray)
+        #print(docArray)
+        return docArray
+
+    def returnNGramConstruct2(self, wordArray):
+        print(wordArray)
+
+    def returnNGramConstruct(self, wordArray):
+        string = ""
+        nGram = 4
+        sentLen = len(wordArray)
+        if sentLen < nGram:
+            nGram = sentLen + 1
+        processSection = wordArray[:4]
+        stringArray = []
+        for i in range(nGram - 1):
+            string = string.strip() + " " +  processSection[i].strip() + " "
+            stringArray.append(string.strip())
+        #print(stringArray)
+
+        return wordArray[1:] , stringArray
+
+
+    def breakDocIntoChunks(self, textSections):
+        brokenSentArray = []
+        text = " ".join(textSections.split("\n"))
+        sentArray = text.split(". ")
+        for sent in sentArray:
+            sent = sent.split(", ")
+            brokenSentArray.extend(sent)
+        return brokenSentArray
+
+
+    def CutToChunks(self, dataset):
+        # loop over docs and reduce to sent chunks
+        docChunkArrayList = []
+        for docSections in  list(dataset.sectionsDict):
+            #print(type(docSections))
+            docChunkArray = []
+            for section in docSections.values():
+                chunkDoc = self.breakDocIntoChunks(section)
+                docChunkArray.extend(chunkDoc)
+            docChunkArrayList.append(docChunkArray)
+        return docChunkArrayList
+
+    def punctuationCleanSentenceLevel(self, datasetSection):
+        # takes in a series of array of arrays of doc sentences
+        corpusList = []
+        for doc in datasetSection:
+            docString = []
+            for sent in doc:
+                # TODO
+                docString.append(self.cleanSent(sent))
+            corpusList.append(docString)
+        return corpusList
+
+    def cleanSent(self, sent):
+        remove = string.punctuation
+        remove = remove.replace("-", "")
+        pattern = r"[{}]".format(remove)
+        sent = re.sub(pattern, " ", sent.strip().lower())
+        return sent
+
+#####################################################################
+    def plotIndexResults(self, list1):
+        objects = ("<15", "<100", "<500", "<1000", ">1000" ,  "absent")
+        y_pos = np.arange(len(objects))
+        print(list1)
+        plt.bar(y_pos , list1)
+        plt.xticks(y_pos, objects)
+        plt.ylabel("Occurences")
+
+        plt.title("Index Location of Target Term")
+
+        plt.show()
+
+    def rankLocationIndex(self, indexList):
+        cups = [15, 100, 500, 1000, 0]
+        notPresent = 0
+        zero = 0
+        one = 0
+        two = 0
+        three = 0
+        four = 0
+        for docIndex in indexList:
+            for index in docIndex:
+                if index == -1:
+                    notPresent = notPresent + 1
+                elif index < cups[0]:
+                    zero = zero + 1
+                elif index < cups[1]:
+                    one = one + 1
+                elif index < cups[2]:
+                    two = two + 1
+                elif index < cups[3]:
+                    three = three + 1
+                else:
+                    four = four + 1
+
+        return [zero, one, two, three, four, notPresent]
+
+    def extractKeyPhrases(self):
+        keyWords = list(self.df.keywords)
+        competitionWords = list(self.df.competition_terms)
+
+        allWordsList = []
+        for i in range(211):
+            wordList = []
+            if type(competitionWords[i]) is list:
+                wordList.extend(competitionWords[i])
+            if type(keyWords[i]) is str:
+                # an unwanted character simlar to \n
+                KeyWords_ = re.sub("\r", "", keyWords[i].lower())
+                keywords = KeyWords_.split("\n")
+                if keywords[-1] == "":
+                    keywords = keywords[:-1]
+                    wordList.extend(keywords)
+            allWordsList.append(wordList)
+        return allWordsList
+
+    def concatDocSections(self, text):
+        ''' takes in sections as dict type and concatenates them '''
+        stringConCat = ""
+        for item in text.values():
+            stringConCat = stringConCat + " " + item
+
+        return stringConCat
+
+    def punctuationClean(self, dataset):
+        punctuationCleanList = []
+        remove = string.punctuation
+        remove = remove.replace("-", "")
+        pattern = r"[{}]".format(remove)
+
+        for i in range(dataset.shape[0]):
+            punctuationClean = {}
+            for k, v in dataset.sectionsDict[i].items():
+                k = re.sub(pattern, "", k)
+                k = " ".join(k.split("\n"))
+                v = re.sub(pattern, "", v)
+                v = " ".join(v.split("\n"))
+
+                punctuationClean[k] = v.lower()
+            punctuationCleanList.append(punctuationClean)
+        #text = dataset.sectionsDict[0]['"ABSTRACT"']
+        #text = re.sub(pattern, "", text)
+        #print(text)
+        return punctuationCleanList
+
+    def minimalCleaning(self, dataset):
+        minimalCLeanlist = []
+        for i in range(dataset.shape[0]):
+            minimalCleanText = {}
+            for k, v in dataset.sectionsDict[i].items():
+                v = self.cleaningStep( v)
+                k = self.cleaningStep( k)
+
+                minimalCleanText[k] = v
+
+            minimalCLeanlist.append(minimalCleanText)
+        return minimalCLeanlist
+
+
+    def cleaningStep(self, v):
+        #newString = "".join(v.split(" "))
+        newString = "".join(v.split(","))
+        newString = "".join(newString.split("?"))
+        newString = "".join(newString.split("'"))
+        newString = "".join(newString.split("\""))
+        newString = "".join(newString.split(":"))
+        newString = "".join(newString.split(";"))
+        newString = " ".join(newString.split("\n"))
+        newString = "".join(newString.split(")"))
+        newString = "".join(newString.split("("))
+        return newString.lower()
+
+
+    def extractSections(self, text):
+        ## method to extract sections
+        sectionsArray = []
+        # identifies sections
+        for result in re.findall('<SECTION(.*?)</SECTION>', text, re.S):
+            sectionsArray.append(result)
+
+        # further extract headers (will be used as keys)
+        sectionHeaders= []
+        for section in sectionsArray:
+            for result in re.findall('header=(.*?)>', section):
+                sectionHeaders.append(result)
+
+        # append key headers to text
+        sectionDict = dict(zip(sectionHeaders, sectionsArray))
+        return sectionDict
+
+
+    def combineListofLists(self,  lista, listb):
+        termsArray = []
+        for terms in lista:
+            if not isinstance(terms, int):
+                termsArray.extend(terms)
+        for terms in listb:
+            if not isinstance(terms, int):
+                termsArray.extend(terms)
+        termsDict = dict(Counter(termsArray))
+        return termsDict
+
+
+    def returntermDictKeys(self, text):
+        keys = list(text.keys())
+        keysArray = []
+        for key in keys:
+            text = nlpMethods.lemmatise_corpus(self, re.sub('\"', "" , key.lower()))
+            keysArray.append(text)
+
+        return keysArray
+
+    def returntermDictKeysNOT_lemmatised(self, text):
+        keys = list(text.keys())
+        keysArray = []
+        for key in keys:
+            text = re.sub('\"', "" , key.lower())
+            keysArray.append(text)
+
+        return keysArray
+
+    def extractSectionContent(self, dataset, keyTerm):
+        abstract = 0
+        counter = 1
+        contentList = []
+        keyList = []
+        for data in dataset.punctuationClean:
+            boolean = False
+            for key, value in list(data.items()):
+                prospect = key.lower().split()
+                if len(prospect) == 1:
+                    if keyTerm in prospect[0]:
+                        abstract = abstract + 1
+                        contentList.append(value)
+                        keyList.append(key)
+                        counter = counter + 1
+                        boolean = True
+            if not boolean:
+                counter = counter + 1
+                contentList.append("dud")
+                keyList.append("dud")
+
+        return keyList , contentList
+
+    def extractRefernces(self, text):
+        #pattern = 'REFERENCES'
+        if text is not None:
+            try:
+                refs_loc = text.index(self.pattern)
+                text1 = text[refs_loc:]
+                return text1
+            except:
+                i = 1
+            try:
+                pattern1 = self.pattern.lower()
+                pattern1 = pattern1[0].upper() + pattern1[1:]
+                refs_loc = text.index(pattern1)
+                text1 = text[refs_loc:]
+                percent_loc  = float(refs_loc)/len(text)
+                if percent_loc > .80:
+                    return text1
+            except:
+                i = 1
+
+
 
     def lemmatiseCompTerms(self, text):
         sentArray = []
@@ -199,6 +1007,7 @@ class mainMethods:
         for i in range(0, len(match)):
             cand = re.search(pattern, match[i])
             if cand:
+                print(match[i])
                 candidate = cand.group(1)
                 # check that it is longer than 1
                 if len(candidate) > 1:
@@ -219,6 +1028,10 @@ class mainMethods:
     def extractFiles(self, text):
         #path = "/Users/stephenbradshaw/Documents/codingTest/AutomaticKeyphraseExtraction-master/data/"
         return self.path + str(text) + "/" + str(text) + ".txt"
+
+    def extractXMLFiles(self, text):
+        #path = "/Users/stephenbradshaw/Documents/codingTest/AutomaticKeyphraseExtraction-master/data/"
+        return self.path + str(text) + "/" + str(text) + ".xml"
 
     def extractKeyWordFiles(self, text):
 
@@ -271,7 +1084,7 @@ class mainMethods:
 
             print("failed to load -- building tokeniser --")
             # initialise vectoriser and pass cleaned data
-            tfidf_vectoriser = TfidfVectorizer(max_df = 0.9, min_df = 0.1, ngram_range = (1,3), stop_words ='english', tokenizer = self.tokenize_only)
+            tfidf_vectoriser = TfidfVectorizer(max_df = 0.9, min_df = 0.1, ngram_range = (1,4), stop_words ='english', tokenizer = self.tokenize_only)
             tfidf_matrix = tfidf_vectoriser.fit_transform(list(dfList))
 
             #df= pd.DataFrame({"tfidf_matrix" : tfidf_matrix}, index=[0])
@@ -323,8 +1136,6 @@ class mainMethods:
                 pickle.dump(dict1, f, pickle.HIGHEST_PROTOCOL)
 
 
-
-
             # iterate through matrix
             for i in range(0, (tfidf_matrix.shape[0])):
                 for j in range(0, len(tfidf_matrix[i].indices)):
@@ -342,7 +1153,7 @@ class mainMethods:
         with open('dict' + title + '.pkl', 'rb') as f:
             self.wordStore =  pickle.load(f)
 
-        print(list(self.wordStore.items())[:5])
+        #print(list(self.wordStore.items())[:5])
         return df
 
     def extractTopNTerms(self, df ,  N = 10, title = "alt_termsList.pkl" , failSafe = False):
@@ -503,3 +1314,8 @@ class mainMethods:
                     text_array.append(t.lower())
 
         return text_array
+
+    def removeIndex(df):
+        for lines in df.files[0]:
+            print(lines)
+            print(10*"*")

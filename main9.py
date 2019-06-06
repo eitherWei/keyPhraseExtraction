@@ -42,9 +42,17 @@ dataset['sectionsDict'] = methods.df.files.apply(methods.extractSections)
 dataset['brokenCorpus'] = methods.tokeniseCorpus(dataset)
 dataset['stopWordRemoved'] = dataset.brokenCorpus.apply(methods.stopwordRemoval)
 
-# loops over corpus and pulls out accronyms
-accronymDict  = methods.extractAccronymnsCorpus(list(dataset['brokenCorpus']))
+print(dataset.brokenCorpus[0])
 
+
+# loops over corpus and pulls out accronyms
+#accronymDict  = methods.extractAccronymnsCorpus(list(dataset['brokenCorpus']))
+accronymDict = methods.extractAccronymns()
+print(len(accronymDict.keys()))
+for k , v in accronymDict.items():
+    print(k , v)
+
+'''
 # takes in accronym dictionary made above and expands them whereever they appear in text
 brokenCorpus_augment_anagram = methods.expandAcronymsInText(dataset, accronymDict)
 
@@ -68,15 +76,15 @@ brokenCorpus = methods.cleanString(brokenCorpus_augment_anagram)
 print(len(brokenCorpus))
 print(len(brokenCorpus[0]))
 print(brokenCorpus[0])
-'''
+
 graph = methods.plotDiGraph(brokenCorpus)
 
-print(10*"==")
-print(graph.edges(data = "cousin"))
-print(10*"-")
-print(graph.edges(data = "distantCousin"))
+#print(10*"==")
+#print(graph.edges(data = "cousin"))
+#print(10*"-")
+#print(graph.edges(data = "distantCousin"))
 
-print(nx.info(graph))
+#print(nx.info(graph))
 
 #print(graph.edges(data = True))
 
@@ -154,5 +162,11 @@ print((time.time() - start)/60)
 #[154, 203, 366, 164, 61, 318] - standard textrank - window_3 - distanceDecay 1/distanceFromTargetTerm
 #[133, 109, 198, 142, 472, 212] - standard textrank - window_3 - distanceDecay 1/distanceFromTargetTerm -> using phrases generated above
 
-
+# extractingkeyphrases6
 #[135, 204, 146, 45, 2, 734] - allowances made for sentence deliminators
+#[154, 203, 366, 164, 61, 318]
+#[95, 112, 176, 147, 521, 215] -- ngrams constructed from deliminators ; sliding = 3 ; unordered graph ; stopwords included
+#[92, 99, 178, 135, 493, 269] -- graph constructed from directed segmented deliminatoes ; stopwords included
+#[119, 113, 273, 159, 58, 544] -- -- graph constructed from directed segmented deliminatoes ; stopwords included
+#[144, 205, 342, 140, 56, 379]-- graph constructed from directed segmented deliminatoes ; no stiowords
+#[145, 208, 338, 139, 57, 379] -- graph constructed from directed segmented deliminatoes ; no stiowords ; sliding window = 8

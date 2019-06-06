@@ -47,6 +47,28 @@ class mainMethods:
         self.pattern = "REFERENCES"
 #####################################################################
 # patternMiner
+
+
+    # method construct ngrams within sentence deliminators
+    def sentenceConstrainedNgrams(self, text):
+        text = self.expandNGram([text])
+        #print(text)
+        ngram_list = []
+        # doc in corpus
+        for a in text:
+            # section in doc ?
+            for b in a:
+        #        print("--")
+        #        print(b)
+                #sentSection in section
+                for value in b:
+                    # if is a ngram
+                    value1  = value.split()
+                    if len(value1) > 1:
+                        #print(value)
+                        ngram_list.append(value)
+        return ngram_list
+
     def removePunctuation(self, text):
         # takes as input and array of arrays each containing string sentences
         # returns an array containing tokenised clean sentArrays
@@ -89,6 +111,17 @@ class mainMethods:
 
         return sentArray
 
+    def remove_characters_pre_graphing(self, text):
+        Text = []
+        for value in text:
+            sentArray = []
+            for v in value:
+                if v != "_":
+                    sentArray.append(v)
+            if len(sentArray) > 0:
+                Text.append(sentArray)
+
+        return Text
 
 
     def computePageRank2(self, graph):
@@ -179,7 +212,7 @@ class mainMethods:
                             #print(vocab[i], vocab[j])
                             summation += (graph[vocab[i]][vocab[j]]['cousin']/inoutDict[vocab[j]])*score[j]
                 #print(" {} : {} ".format(str(vocab[i]), summation))
-                score[i] = (1 - d)/len(graph.nodes()) + d*(summation)
+                score[i] = (1 - d) + d*(summation)
 
             if np.sum(np.fabs(prev_score - score)) <= threshold:
                 # convergence baby
@@ -278,7 +311,7 @@ class mainMethods:
             for section in doc:
                 #print(section)
                 #print(10*"-")
-                depth = 4
+                depth = 8
                 while(len(section) > 1):
                     g, section = self.plotArray( section, depth, g)
                     #print(10*"....")
@@ -402,12 +435,14 @@ class mainMethods:
                 for line in t:
                     # indicated potential accroynm definition
                     if "(" in line:
+
                         # pass to method that checks previous words to see if accroynm
-                        tester = self.extractCandidateSubstring(line)
+                        tester = self.extractCandidateSubstring1(line)
                         # if not blank add to dict
                         if tester[0] != '':
                             accronymDict[tester[0]] = tester[1]
                             liste.append(tester)
+
         return accronymDict
 
 
@@ -916,6 +951,7 @@ class mainMethods:
         for file in self.df.files:
             for f in file:
                 acc , substring = self.extractCandidateSubstring(f)
+                print(acc, substring)
                 # make sure there are no empty strings or single letter matches
                 if len(acc) > 1:
                     # store all accronyms
@@ -924,6 +960,7 @@ class mainMethods:
 
         # populate the class dictionary with accronyms from the corpus
         self.accronymList = accroDict
+        return accroDict
 
     def extractFileNames(self, path):
         listee = []
@@ -997,7 +1034,8 @@ class mainMethods:
 
 
 
-    def extractCandidateSubstring(self, match):
+    def extractCandidateSubstring1(self, match):
+        #print("this one")
         pattern = '\((.*?)\)'
         candidate = ""
         substring = ""
@@ -1007,7 +1045,6 @@ class mainMethods:
         for i in range(0, len(match)):
             cand = re.search(pattern, match[i])
             if cand:
-                print(match[i])
                 candidate = cand.group(1)
                 # check that it is longer than 1
                 if len(candidate) > 1:
@@ -1020,6 +1057,7 @@ class mainMethods:
                     wordsAccro = self.returnPotentAccro(substring)
                     if candidate.lower() == wordsAccro.lower():
                         # return the correct accro and definition
+
                         return (candidate.lower(), substring)
 
         # no accronym found return blank , will be filtered out
@@ -1196,6 +1234,7 @@ class mainMethods:
     # code for looking at accroynms
 
     def extractCandidateSubstring(self, match):
+        #print("this one")
         pattern = '\((.*?)\)'
         candidate = ""
         substring = ""
@@ -1266,6 +1305,35 @@ class mainMethods:
             df.to_pickle("phraseDF.pkl")
 
         return df
+
+    def extractPhraseTextRankStyle(self, text, textRankDict):
+        # extract all candidate phrases
+        all_Phrase = []
+        for array in text:
+            phrase = ""
+            for a in array:
+                if a != "_":
+                    phrase = phrase + " " +  a
+                else:
+                    if len(phrase) > 0:
+                        all_Phrase.append(phrase.strip())
+                    phrase = ""
+
+        # reduct that to unique instances
+        all_Phrase_set = list(set(all_Phrase))
+
+        # iterate over and
+        for phrase in all_Phrase_set:
+            phraseList = phrase.split()
+            if len(phraseList) > 1:
+                value = 0
+                for p in phraseList:
+                    if p in textRankDict:
+                        value += textRankDict[p]
+                value = value/len(phraseList)
+                textRankDict[phrase] = value
+
+        return textRankDict, all_Phrase
 
 
 

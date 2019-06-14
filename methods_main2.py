@@ -45,6 +45,100 @@ class mainMethods:
         self.wordStore = {}
         # pattern to change text area targeted
         self.pattern = "REFERENCES"
+
+
+#####################################################################
+#extractingkeyphrases7Pos
+
+    def constructTextRankGraph(self, indexVal, dataset):
+        # vectors to hold results
+        doc_id_list = []
+        term_list = []
+        term_idf_list = []
+
+        print('this run is {}'.format(indexVal))
+        #this method is performed on wholeCorpus
+        #text = extractPOS(dataset.wholeSections[indexVal])
+
+        # this method looks to keep sentence delminated integrity.
+        text = self.extractPosTags(dataset.procesedString[indexVal])
+
+        #altering loop as text is an array within an array
+        # loops over text and looks at only POS friendly terms
+        Text = []
+        for value in text:
+            sentText = []
+            for v in value:
+                if v != "_":
+                    sentText.append(v)
+            if len(sentText) > 0:
+                Text.append(sentText)
+
+        # build graph from target docs
+        graph = self.plotDiGraph([Text])
+
+        textRankDict = self.computePageRank(graph)
+        # combines all adjacent terms
+        phrase = ""
+        phraseList = []
+        for t in text:
+            for s in t:
+                if s != "_":
+                    phrase  = phrase + " " + s
+                else:
+                    if len(phrase) > 1:
+                        phraseList.append(phrase.strip())
+                        phrase = ""
+        #print(phraseList)
+
+        # phrase  creation two
+        # this text contains the original job
+        #text = all_corpus_rejoined[indexVal]
+
+        # extract all candidate phrases
+        #<------------ uncommenting to construct textrank style phrases
+        all_Phrase = []
+        for array in text:
+            #print(array)
+            all_Phrase.extend(array)
+
+
+        # ngrams formed from deliminators constraints
+        text = dataset['procesedString'][indexVal]
+        #phraseList = methods.sentenceConstrainedNgrams(text)
+        # iterates over the corpus and extracts all none singletons.
+        # reduct that to unique in stances
+        all_Phrase = list(set(phraseList))
+        #print(all_Phrase)
+        # iterate over and
+        for phrase in all_Phrase:
+            #print(phrase)
+            phraseList = phrase.split()
+            if len(phraseList) > 1:
+                value = 0
+                for p in phraseList:
+                    if p in textRankDict:
+                        value += textRankDict[p]
+                value = value/len(phraseList)
+                textRankDict[phrase] = value
+
+        local_id_list = [ indexVal for x in range(len(textRankDict))]
+        local_term_list = list(textRankDict.keys())
+        local_term_idf_list = list(textRankDict.values())
+
+
+        term_list.extend(local_term_list)
+        term_idf_list.extend(local_term_idf_list)
+        doc_id_list.extend(local_id_list)
+
+        df = pd.DataFrame({"doc_id_list": doc_id_list, "term_list" : term_list, "term_idf_list": term_idf_list})
+
+        return df
+
+            # add row at index b from dataframe dfObj2 to dataframe dfObj
+            #modDfobj = dfObj.append(dfObj2.loc['b'], ignore_index=True)
+
+
 #####################################################################
 # patternMiner
 
@@ -244,6 +338,8 @@ class mainMethods:
         ### assigning sectionDictionary to dataset
         ### breaks the xml into sections allowing us to compartmentalise analysis
         dataset['sectionsDict'] = methods.df.files.apply(methods.extractSections)
+        ## first extract accroynms
+
         # remove the punctuation
         dataset['punctuationClean'] = methods.punctuationClean(dataset)
         # iterate over sections and create one doc
@@ -400,12 +496,38 @@ class mainMethods:
 
         return corpusArray
 
+    def expandAcronymsInText(self, textList, accronymDict):
+            index = -1
+            # switching dataset.stopWordRemoved for brokenCorpus
+            brokenCorpus_augment_anagram = []
+            #for text in brokenCorpus:
+            for text in textList:
+                index = index + 1
+                # outer array
+                aug_doc_array = []
+                for t in text:
+                    # inner array
+                    #sectionDict = []
+                    sectionDoc = []
+                    for line in t:
+                        sectionDoc.append(line)
+                        for term in line.split():
+                            if term.isupper():
+                                if len(term) > 1:
+                                    term = term.lower()
+                                    if term in accronymDict:
+                                        acc = " ".join(accronymDict[term])
+                                        sectionDoc.append(acc)
+                    aug_doc_array.append(sectionDoc)
+                brokenCorpus_augment_anagram.append(aug_doc_array)
+            return brokenCorpus_augment_anagram
 
-    def expandAcronymsInText(self, dataset, accronymDict):
-    # switching dataset.stopWordRemoved for brokenCorpus
+
+    def expandAcronymsInText2(self, dataset, accronymDict):
+    # switching dataset.stopWordRemoved for sectionsDict
         brokenCorpus_augment_anagram = []
         #for text in brokenCorpus:
-        for text in list(dataset['stopWordRemoved']):
+        for text in list(dataset['sectionsDict']):
             # outer array
             aug_doc_array = []
             for t in text:
@@ -420,6 +542,7 @@ class mainMethods:
                                 if term in accronymDict:
                                     #print(term , accronymDict[term])
                                     acc = " ".join(accronymDict[term])
+
                                     sectionDoc.append(acc)
                 aug_doc_array.append(sectionDoc)
             brokenCorpus_augment_anagram.append(aug_doc_array)
@@ -435,18 +558,37 @@ class mainMethods:
                 for line in t:
                     # indicated potential accroynm definition
                     if "(" in line:
-
                         # pass to method that checks previous words to see if accroynm
                         tester = self.extractCandidateSubstring1(line)
+
                         # if not blank add to dict
-                        if tester[0] != '':
-                            accronymDict[tester[0]] = tester[1]
+                        if tester[0] != '' and len(tester[0]) > 1:
+                            accronymDict[tester[0]] = [x.lower() for x in tester[1]]
                             liste.append(tester)
 
         return accronymDict
 
+    def formatTextForAccExp(self, text):
+            # method for iterating over items in the dataframe
+            # each item is a list of list of strings  (corpus/section/lines)
+            # stopwords are removed and the the stringArrays are rejoined and returned for tokenizer down the lines
+            # array to hold the doc
+            docArray = []
+            for sect in text:
+                # array to hold each section
+                sectArray = []
+                # break each string in the list and rremove stopwords
+                for line in sect:
+                    line = line.split()
+                    lineArray = [x for x in line]
+                    # rejoin the stingArrays
+                    sectArray.append(" ".join(lineArray))
+                # append the sections to the docArray
+                docArray.append(sectArray)
+            # return the entire document as list of list of strings
+            return docArray
 
-    def stopwordRemoval(self, text):
+    def stopwordRemoval2(self, text):
         # method for iterating over items in the dataframe
         # each item is a list of list of strings  (corpus/section/lines)
         # stopwords are removed and the the stringArrays are rejoined and returned for tokenizer down the lines
@@ -477,7 +619,7 @@ class mainMethods:
         chunkArray = []
 
         for sent in array:
-            sent = sent.lower()
+            #sent = sent.lower()
             sent1 = sent.split(indicator)
             chunkArray.extend(sent1)
         #print('\n')
@@ -514,6 +656,7 @@ class mainMethods:
                 #print(2*"\n")
                 sectArray.append(semiCollonArray)
             corpusArray.append(sectArray)
+
 
         return corpusArray
 
@@ -951,7 +1094,7 @@ class mainMethods:
         for file in self.df.files:
             for f in file:
                 acc , substring = self.extractCandidateSubstring(f)
-                print(acc, substring)
+                #print(acc, substring)
                 # make sure there are no empty strings or single letter matches
                 if len(acc) > 1:
                     # store all accronyms
@@ -1045,14 +1188,17 @@ class mainMethods:
         for i in range(0, len(match)):
             cand = re.search(pattern, match[i])
             if cand:
+
                 candidate = cand.group(1)
                 # check that it is longer than 1
                 if len(candidate) > 1:
                     # check and remove for non capital mix
+                    #print(candidate)
                     if(self.lookingAtAcroynms(candidate)):
                         candidate = self.removeNonCapitals(candidate)
                     j = len(candidate)
                     substring = match[i-j:i]
+                    #print(substring)
                     # check if accronym is present
                     wordsAccro = self.returnPotentAccro(substring)
                     if candidate.lower() == wordsAccro.lower():

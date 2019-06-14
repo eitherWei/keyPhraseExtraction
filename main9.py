@@ -40,22 +40,27 @@ dataset['sectionsDict'] = methods.df.files.apply(methods.extractSections)
 # each doc is broken to section, which  is further broken into sentences and then into word arrays
 
 dataset['brokenCorpus'] = methods.tokeniseCorpus(dataset)
-dataset['stopWordRemoved'] = dataset.brokenCorpus.apply(methods.stopwordRemoval)
+#dataset['stopWordRemoved'] = dataset.brokenCorpus.apply(methods.stopwordRemoval)
 
 print(dataset.brokenCorpus[0])
 
 
 # loops over corpus and pulls out accronyms
-#accronymDict  = methods.extractAccronymnsCorpus(list(dataset['brokenCorpus']))
-accronymDict = methods.extractAccronymns()
+accronymDict  = methods.extractAccronymnsCorpus(list(dataset['brokenCorpus'])[:1])
+
+#accronymDict = methods.extractAccronymns()
 print(len(accronymDict.keys()))
 for k , v in accronymDict.items():
     print(k , v)
 
-'''
+
 # takes in accronym dictionary made above and expands them whereever they appear in text
 brokenCorpus_augment_anagram = methods.expandAcronymsInText(dataset, accronymDict)
 
+for line in brokenCorpus_augment_anagram:
+    print(line)
+
+'''
 # after stopword removal and accronym extend
 # lemmatise this corpus
 #brokenCorpus_augment_anagram = methods.lemmatiseTheCorpus(brokenCorpus_augment_anagram)
@@ -170,3 +175,4 @@ print((time.time() - start)/60)
 #[119, 113, 273, 159, 58, 544] -- -- graph constructed from directed segmented deliminatoes ; stopwords included
 #[144, 205, 342, 140, 56, 379]-- graph constructed from directed segmented deliminatoes ; no stiowords
 #[145, 208, 338, 139, 57, 379] -- graph constructed from directed segmented deliminatoes ; no stiowords ; sliding window = 8
+#[146, 205, 336, 141, 59, 379] -- graph constructed from directed segmented deliminatoes ; no stiowords ; sliding window = 8 ; accronym expansion
